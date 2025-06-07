@@ -3,10 +3,32 @@
 import * as vscode from 'vscode';
 import { JjRepository } from './domain/JjRepository';
 import { JjScmProvider } from './adapters/scmProvider';
+import { createJjCommitView } from './ui/commit_view';
+import * as fs from 'fs';
+import * as path from 'path';
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
+	const rootPath = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+	if (!rootPath) {
+		vscode.window.showErrorMessage("No workspace folder found.");
+		return;
+	}
+
+	const jjPath = path.join(rootPath, '.jj');
+	if (!fs.existsSync(jjPath)) {
+		// Not a jj repository.
+		vscode.commands.executeCommand('setContext', 'jj-vsc.isJjRepository', false);
+		return;
+	}
+	vscode.commands.executeCommand('setContext', 'jj-vsc.isJjRepository', true);
+
+	const jjRepo = new JjRepository(rootPath);
+	const scmProvider = new JjScmProvider(jjRepo);
+	const commitView = createJjCommitView(jjRepo);
+
+	context.subscriptions.push(scmProvider, commitView);
 
 	// Use the console to output diagnostic information (console.log) and errors (console.error)
 	// This line of code will only be executed once when your extension is activated
@@ -22,14 +44,6 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 
 	context.subscriptions.push(disposable);
-
-	// Initialize JJ repository & SCM provider for the first workspace folder (if any)
-	const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
-	if (workspaceFolder) {
-		const repo = new JjRepository(workspaceFolder.uri.fsPath);
-		const provider = new JjScmProvider(repo);
-		context.subscriptions.push(provider);
-	}
 }
 
 // This method is called when your extension is deactivated

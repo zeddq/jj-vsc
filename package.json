@@ -4,14 +4,13 @@
   "description": "VSCode integration for JuJutsu VCS",
   "version": "0.0.1",
   "engines": {
-    "vscode": "^1.100.0"
+    "vscode": "^1.96.2"
   },
   "categories": [
     "Other"
   ],
   "activationEvents": [
-    "onStartupFinished",
-    "onCommand:jj-vsc.commit"
+    "workspaceContains:**/.jj"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -23,7 +22,42 @@
       {
         "command": "jj-vsc.commit",
         "title": "JuJutsu: Commit Changes",
-        "category": "JuJutsu VCS"
+        "icon": {
+					"light": "resources/icons/light/check.svg",
+					"dark": "resources/icons/dark/check.svg"
+				}
+      },
+      {
+        "command": "jj-vsc.show_diff",
+        "title": "JuJutsu: Show Working Copy Diff",
+				"icon": {
+					"light": "resources/icons/light/discord.svg",
+					"dark": "resources/icons/dark/discord.svg"
+				}      
+      },
+      {
+        "command": "jj-vsc.show_history",
+        "title": "JuJutsu: Show History",
+				"icon": {
+					"light": "resources/icons/light/discord.svg",
+					"dark": "resources/icons/dark/discord.svg"
+				}      
+      },
+      {
+        "command": "jj-vsc.merge_branch",
+        "title": "JuJutsu: Merge Branch",
+				"icon": {
+					"light": "resources/icons/light/discord.svg",
+					"dark": "resources/icons/dark/discord.svg"
+				}      
+      },
+      {
+        "command": "jj-vsc.refresh",
+        "title": "JuJutsu: Refresh Status",
+				"icon": {
+					"light": "resources/icons/light/refresh.svg",
+					"dark": "resources/icons/dark/refresh.svg"
+				}      
       }
     ],
     "configuration": {
@@ -45,6 +79,34 @@
           "description": "Show status bar item."
         }
       }
+    },
+    "menus": {
+      "scm/title": [
+        {
+          "command": "jj-vsc.refresh",
+          "when": "scmProvider == jj",
+          "group": "navigation@1"
+        },
+        {
+          "command": "jj-vsc.show_diff",
+          "when": "scmProvider == jj",
+          "group": "navigation@2"
+        },
+        {
+          "command": "jj-vsc.commit",
+          "when": "scmProvider == jj",
+          "group": "navigation@3"
+        }
+      ]
+    },
+    "views": {
+      "scm": [
+        {
+          "id": "jj-commit-log",
+          "name": "Commit Log",
+          "when": "jj-vsc.isJjRepository"
+        }
+      ]
     }
   },
   "scripts": {
