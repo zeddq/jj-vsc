@@ -32,8 +32,9 @@ export class JjScmProvider implements vscode.Disposable {
   
     async refresh() {
       const status = await this.repo.status();       // domain layer
-      this.workingTree.resourceStates = status.modified.map(toResourceState);
-      this.staged.resourceStates      = status.added.map(toResourceState);
+      const root = this.repo.rootPath;
+      this.workingTree.resourceStates = status.modified.map(f => toResourceState(f, root));
+      this.staged.resourceStates      = status.added.map(f => toResourceState(f, root));
     }
   
     async commit(message: string) {

@@ -17,6 +17,10 @@ const execFileAsync = promisify(execFile);
 export class JjRepository {
     constructor(private readonly root: string) {}
 
+    get rootPath(): string {
+        return this.root;
+    }
+
     /**
      * Return a summary of the current working copy status.
      * TODO: Use `jj status --relative --compact` once implemented.
