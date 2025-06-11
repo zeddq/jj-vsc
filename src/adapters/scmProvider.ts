@@ -21,9 +21,6 @@ export class JjScmProvider implements vscode.Disposable {
         await this.commit(this.sourceControl.inputBox.value);
         this.sourceControl.inputBox.value = '';
       }),
-      vscode.commands.registerCommand('jj-vsc.refresh', async () => {
-        await this.refresh();
-      }),
       vscode.workspace.onDidSaveTextDocument(() => this.refresh())
     );
 
@@ -32,12 +29,13 @@ export class JjScmProvider implements vscode.Disposable {
 
   async refresh() {
     const status = await this.repo.status();       // domain layer
-    this.workingTree.resourceStates = status.modified.map(toResourceState);
-    this.workingTree.resourceStates.push(...status.added.map(toResourceState));
-    this.workingTree.resourceStates.push(...status.deleted.map(toResourceState));
-    this.workingTree.resourceStates.push(...status.moved.map(toResourceState));
+    const root = this.repo.rootPath;
+    this.workingTree.resourceStates = status.modified.map(toResourceState.bind(null, root));
+    this.workingTree.resourceStates.push(...status.added.map(toResourceState.bind(null, root)));
+    this.workingTree.resourceStates.push(...status.deleted.map(toResourceState.bind(null, root)));
+    this.workingTree.resourceStates.push(...status.moved.map(toResourceState.bind(null, root)));
   }
-  
+
   async commit(message: string) {
     try {
       await vscode.window.withProgress(
@@ -48,6 +46,6 @@ export class JjScmProvider implements vscode.Disposable {
       await this.refresh();
     }
   }
-  
+
   dispose() { this.disposables.forEach(d => d.dispose()); }
 }
