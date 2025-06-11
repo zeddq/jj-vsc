@@ -1,71 +1,48 @@
-# jj-vsc README
+# jj-vsc
 
-This is the README for your extension "jj-vsc". After writing up a brief description, we recommend including the following sections.
+VS Code integration for the [JuJutsu](https://github.com/martinvonz/jj) version control system. The extension exposes common JJ commands through the Source Control view and the command palette.
 
 ## Features
 
-Describe specific features of your extension including screenshots of your extension in action. Image paths are relative to this README file.
+- Status view showing changed, added, deleted and moved files
+- Commit changes directly from the Source Control view
+- View working copy diffs and commit history
+- Merge branches from the command palette
+- Refresh repository status on demand or automatically when files are saved
 
-For example if there is an image subfolder under your extension project workspace:
+## Usage
 
-\!\[feature X\]\(images/feature-x.png\)
+1. Open a workspace that contains a `.jj` directory.
+2. The extension activates automatically and the *JuJutsu* source control provider becomes available.
+3. Use the commands listed under **JuJutsu:** in the command palette to interact with the repository.
 
-> Tip: Many popular extensions utilize animations. This is an excellent way to show off your extension! We recommend short, focused animations that are easy to follow.
+## Building and Testing
 
-## Requirements
+```bash
+npm install            # install dependencies
+npm run compile        # build the extension
+npm test               # run the test suite
+```
 
-If you have any requirements or dependencies, add a section describing those and how to install and configure them.
+During development you can run `npm run watch` to rebuild on file changes.
 
-## Extension Settings
+## Configuration Options
 
-Include if your extension adds any VS Code settings through the `contributes.configuration` extension point.
+The extension contributes the following settings under the `jj-vsc` namespace:
 
-For example:
-
-This extension contributes the following settings:
-
-* `myExtension.enable`: Enable/disable this extension.
-* `myExtension.thing`: Set to `blah` to do something.
+- `jj-vsc.enableAutoFetch` – boolean, defaults to `true`. Enable automatic fetching of changes.
+- `jj-vsc.defaultCommitMessage` – string, default empty. Template used for new commit messages.
+- `jj-vsc.showStatusBar` – boolean, defaults to `true`. Show status bar information when a JJ repository is detected.
 
 ## Known Issues
 
-Calling out known issues can help limit users opening duplicate issues against your extension.
+- JuJutsu must be installed and available on the system `PATH`.
+- Some features rely on JJ commands that are not yet implemented (e.g. retrieving the previous version of a file).
 
 ## Release Notes
 
-Users appreciate release notes as you update your extension.
-
-### 1.0.0
-
-Initial release of ...
-
-### 1.0.1
-
-Fixed issue #.
-
-### 1.1.0
-
-Added features X, Y, and Z.
+See [CHANGELOG.mda](CHANGELOG.mda) for the list of changes.
 
 ---
 
-## Following extension guidelines
-
-Ensure that you've read through the extensions guidelines and follow the best practices for creating your extension.
-
-* [Extension Guidelines](https://code.visualstudio.com/api/references/extension-guidelines)
-
-## Working with Markdown
-
-You can author your README using Visual Studio Code. Here are some useful editor keyboard shortcuts:
-
-* Split the editor (`Cmd+\` on macOS or `Ctrl+\` on Windows and Linux).
-* Toggle preview (`Shift+Cmd+V` on macOS or `Shift+Ctrl+V` on Windows and Linux).
-* Press `Ctrl+Space` (Windows, Linux, macOS) to see a list of Markdown snippets.
-
-## For more information
-
-* [Visual Studio Code's Markdown Support](http://code.visualstudio.com/docs/languages/markdown)
-* [Markdown Syntax Reference](https://help.github.com/articles/markdown-basics/)
-
-**Enjoy!**
+*Following the [extension guidelines](https://code.visualstudio.com/api/references/extension-guidelines).* 
