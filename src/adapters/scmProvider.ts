@@ -1,6 +1,6 @@
 // src/adapters/scmProvider.ts
 import * as vscode from 'vscode';
-import { JjRepository, JjExecutionError } from '../domain/JjRepository';
+import { JjRepository, JjExecutionError, execJj } from '../domain/JjRepository';
 import { toResourceState } from './resourceState';
 
 export class JjScmProvider implements vscode.Disposable {
@@ -164,6 +164,17 @@ export class JjScmProvider implements vscode.Disposable {
         console.error('Post-commit refresh failed:', err);
       });
     }
+  }
+
+  /**
+ * Get the previous version of a file content
+ * TODO: Implement with the correct jj command when provided
+ * 
+ * @param filePath Path to the file relative to repository root
+ * @returns The content of the file in the previous revision
+ */
+  async getPreviousFileContent(filePath: string): Promise<string> {
+    return await execJj(['cat', '-r', '@-', filePath], { cwd: this.repo.rootPath });
   }
 
   dispose(): void {

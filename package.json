@@ -103,7 +103,7 @@
       "scm": [
         {
           "id": "jj-commit-log",
-          "name": "Commit Log",
+          "name": "Working Copy Changes",
           "when": "jj-vsc.isJjRepository"
         }
       ]

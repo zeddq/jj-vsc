@@ -45,7 +45,7 @@ const execFileAsync = promisify(execFile);
  * @returns Command output
  * @throws {JjExecutionError} When command execution fails
  */
-async function execJj(args: string[], { cwd }: { cwd: string }): Promise<string> {
+export async function execJj(args: string[], { cwd }: { cwd: string }): Promise<string> {
     const command = 'jj';
     
     try {
@@ -300,6 +300,27 @@ export class JjRepository {
             }
             throw err;
         }
+    }
+
+    /**
+     * Get the previous version of a file content
+     * TODO: Implement with the correct jj command when provided
+     * 
+     * @param filePath Path to the file relative to repository root
+     * @returns The content of the file in the previous revision
+     */
+    async getPreviousFileContent(filePath: string): Promise<string> {
+        // TODO: Replace with actual jj command when provided
+        // Possible implementations:
+        // - jj cat -r @- <file>
+        // - jj show @-:<file>
+        // - jj file show -r @- <file>
+        
+        throw new Error('Getting previous file content not yet implemented. Please provide the jj command.');
+        
+        // Expected implementation:
+        // const relativePath = path.relative(this.root, filePath);
+        // return await execJj(['cat', '-r', '@-', relativePath], { cwd: this.root });
     }
 }
 
