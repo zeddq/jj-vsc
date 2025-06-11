@@ -23,41 +23,41 @@
         "command": "jj-vsc.commit",
         "title": "JuJutsu: Commit Changes",
         "icon": {
-					"light": "resources/icons/light/check.svg",
-					"dark": "resources/icons/dark/check.svg"
-				}
+          "light": "resources/icons/light/check.svg",
+          "dark": "resources/icons/dark/check.svg"
+        }
       },
       {
         "command": "jj-vsc.show_diff",
         "title": "JuJutsu: Show Working Copy Diff",
-				"icon": {
-					"light": "resources/icons/light/discord.svg",
-					"dark": "resources/icons/dark/discord.svg"
-				}      
+        "icon": {
+          "light": "resources/icons/light/discord.svg",
+          "dark": "resources/icons/dark/discord.svg"
+        }
       },
       {
         "command": "jj-vsc.show_history",
         "title": "JuJutsu: Show History",
-				"icon": {
-					"light": "resources/icons/light/discord.svg",
-					"dark": "resources/icons/dark/discord.svg"
-				}      
+        "icon": {
+          "light": "resources/icons/light/discord.svg",
+          "dark": "resources/icons/dark/discord.svg"
+        }
       },
       {
         "command": "jj-vsc.merge_branch",
         "title": "JuJutsu: Merge Branch",
-				"icon": {
-					"light": "resources/icons/light/discord.svg",
-					"dark": "resources/icons/dark/discord.svg"
-				}      
+        "icon": {
+          "light": "resources/icons/light/discord.svg",
+          "dark": "resources/icons/dark/discord.svg"
+        }
       },
       {
         "command": "jj-vsc.refresh",
         "title": "JuJutsu: Refresh Status",
-				"icon": {
-					"light": "resources/icons/light/refresh.svg",
-					"dark": "resources/icons/dark/refresh.svg"
-				}      
+        "icon": {
+          "light": "resources/icons/light/refresh.svg",
+          "dark": "resources/icons/dark/refresh.svg"
+        }
       }
     ],
     "configuration": {
@@ -124,16 +124,20 @@
     "test": "vscode-test"
   },
   "devDependencies": {
-    "@types/vscode": "^1.100.0",
     "@types/mocha": "^10.0.10",
     "@types/node": "20.x",
+    "@types/proxyquire": "^1.3.31",
+    "@types/sinon": "^17.0.4",
+    "@types/vscode": "^1.100.0",
     "@typescript-eslint/eslint-plugin": "^8.31.1",
     "@typescript-eslint/parser": "^8.31.1",
-    "eslint": "^9.25.1",
-    "esbuild": "^0.25.3",
-    "npm-run-all": "^4.1.5",
-    "typescript": "^5.8.3",
     "@vscode/test-cli": "^0.0.10",
-    "@vscode/test-electron": "^2.5.2"
+    "@vscode/test-electron": "^2.5.2",
+    "esbuild": "^0.25.3",
+    "eslint": "^9.25.1",
+    "npm-run-all": "^4.1.5",
+    "proxyquire": "^2.1.3",
+    "sinon": "^20.0.0",
+    "typescript": "^5.8.3"
   }
 }
