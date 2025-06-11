@@ -1,7 +1,8 @@
 // src/adapters/scmProvider.ts
 import * as vscode from 'vscode';
-import { JjRepository, JjExecutionError, execJj } from '../domain/JjRepository';
+import { JjRepository, JjExecutionError } from '../domain/JjRepository';
 import { toResourceState } from './resourceState';
+import { NotificationService, NotificationLevel } from '../services/NotificationService';
 
 export class JjScmProvider implements vscode.Disposable {
   private readonly sourceControl =
@@ -12,17 +13,30 @@ export class JjScmProvider implements vscode.Disposable {
 
   private disposables: vscode.Disposable[] = [];
   private refreshing = false;
+  private autoRefreshEnabled = true;
+  private lastRefreshError?: Error;
 
-  constructor(private readonly repo: JjRepository) {
+  constructor(
+    private readonly repo: JjRepository,
+    private readonly notificationService: NotificationService
+  ) {
     // Bind commit command to the SCM input box accept action
     this.sourceControl.acceptInputCommand = { command: 'jj-vsc.commit', title: 'Commit' };
+
+    // Configure source control UI
+    this.sourceControl.quickDiffProvider = this;
+    this.sourceControl.count = 0;
 
     this.disposables.push(
       vscode.commands.registerCommand('jj-vsc.commit', async () => {
         const message = this.sourceControl.inputBox.value.trim();
         
         if (!message) {
-          vscode.window.showWarningMessage('Please enter a commit message');
+          await this.notificationService.notify(
+            NotificationLevel.Warning,
+            'Please enter a commit message',
+            { modal: true }
+          );
           return;
         }
 
@@ -33,24 +47,43 @@ export class JjScmProvider implements vscode.Disposable {
           // Error is handled in commit method
         }
       }),
+      
+      vscode.commands.registerCommand('jj-vsc.toggleAutoRefresh', () => {
+        this.autoRefreshEnabled = !this.autoRefreshEnabled;
+        const status = this.autoRefreshEnabled ? 'enabled' : 'disabled';
+        this.notificationService.notify(
+          NotificationLevel.Info,
+          `Auto-refresh ${status}`
+        );
+      }),
+      
       vscode.workspace.onDidSaveTextDocument(() => {
+        if (!this.autoRefreshEnabled) return;
+        
         // Debounce refresh on save to avoid multiple rapid refreshes
         if (!this.refreshing) {
-          void this.refresh().catch(err => {
-            // Log but don't show error on auto-refresh to avoid spam
-            console.error('Auto-refresh failed:', err);
+          void this.refresh(true).catch(err => {
+            // Auto-refresh errors are logged but not shown to user
+            this.notificationService.log(
+              NotificationLevel.Warning,
+              'Auto-refresh failed',
+              err instanceof Error ? err.message : String(err)
+            );
           });
         }
       })
     );
 
     void this.refresh().catch(err => {
-      console.error('Initial refresh failed:', err);
-      vscode.window.showWarningMessage('Failed to load repository status');
+      this.notificationService.handleJjError(
+        err,
+        'Failed to initialize repository',
+        { modal: true }
+      );
     });
   }
 
-  async refresh(): Promise<void> {
+  async refresh(isAutoRefresh = false): Promise<void> {
     if (this.refreshing) {
       return; // Avoid concurrent refreshes
     }
@@ -63,42 +96,62 @@ export class JjScmProvider implements vscode.Disposable {
       // Clear and rebuild resource states
       const resourceStates: vscode.SourceControlResourceState[] = [];
       
-      status.modified.forEach(file => {
+      // Process each file type
+      for (const file of status.modified) {
         try {
           resourceStates.push(toResourceState(root, file));
         } catch (err) {
-          console.error(`Failed to create resource state for ${file.path}:`, err);
+          this.notificationService.log(
+            NotificationLevel.Warning,
+            `Failed to create resource state for ${file.path}`,
+            err instanceof Error ? err.message : String(err)
+          );
         }
-      });
+      }
       
-      status.added.forEach(file => {
+      for (const file of status.added) {
         try {
           resourceStates.push(toResourceState(root, file));
         } catch (err) {
-          console.error(`Failed to create resource state for ${file.path}:`, err);
+          this.notificationService.log(
+            NotificationLevel.Warning,
+            `Failed to create resource state for ${file.path}`,
+            err instanceof Error ? err.message : String(err)
+          );
         }
-      });
+      }
       
-      status.deleted.forEach(file => {
+      for (const file of status.deleted) {
         try {
           resourceStates.push(toResourceState(root, file));
         } catch (err) {
-          console.error(`Failed to create resource state for ${file.path}:`, err);
+          this.notificationService.log(
+            NotificationLevel.Warning,
+            `Failed to create resource state for ${file.path}`,
+            err instanceof Error ? err.message : String(err)
+          );
         }
-      });
+      }
       
-      status.moved.forEach(file => {
+      for (const file of status.moved) {
         try {
           resourceStates.push(toResourceState(root, file));
         } catch (err) {
-          console.error(`Failed to create resource state for ${file.path}:`, err);
+          this.notificationService.log(
+            NotificationLevel.Warning,
+            `Failed to create resource state for ${file.path}`,
+            err instanceof Error ? err.message : String(err)
+          );
         }
-      });
+      }
 
       this.workingTree.resourceStates = resourceStates;
       
-      // Update status bar with change count
+      // Update change count
       const changeCount = resourceStates.length;
+      this.sourceControl.count = changeCount;
+      
+      // Update status bar with change count
       this.sourceControl.statusBarCommands = changeCount > 0 
         ? [{
             command: 'jj-vsc.show_diff',
@@ -107,23 +160,58 @@ export class JjScmProvider implements vscode.Disposable {
           }]
         : undefined;
 
-    } catch (err) {
-      if (err instanceof JjExecutionError) {
-        // Don't show error dialog for every refresh failure
-        console.error('Failed to refresh repository status:', err.message);
+      // Clear any previous refresh errors on successful refresh
+      if (this.lastRefreshError) {
+        this.lastRefreshError = undefined;
+        this.notificationService.clearErrors();
         
-        // Clear the resource states to indicate error state
-        this.workingTree.resourceStates = [];
-        
-        // Update status bar to show error
-        this.sourceControl.statusBarCommands = [{
-          command: 'jj-vsc.refresh',
-          title: '$(error) Repository error',
-          tooltip: `Failed to get status: ${err.message}\nClick to retry`
-        }];
-      } else {
-        throw err;
+        // Show success message if we recovered from error
+        if (!isAutoRefresh) {
+          await this.notificationService.notify(
+            NotificationLevel.Info,
+            'Repository status refreshed successfully'
+          );
+        }
       }
+
+    } catch (err) {
+      this.lastRefreshError = err instanceof Error ? err : new Error(String(err));
+      
+      // Clear the resource states to indicate error state
+      this.workingTree.resourceStates = [];
+      this.sourceControl.count = 0;
+      
+      // Update status bar to show error
+      this.sourceControl.statusBarCommands = [{
+        command: 'jj-vsc.refresh',
+        title: '$(error) Repository error',
+        tooltip: `Failed to get status: ${this.lastRefreshError.message}\nClick to retry`
+      }];
+      
+      // Show error to user (not for auto-refresh)
+      if (!isAutoRefresh) {
+        await this.notificationService.handleJjError(
+          err,
+          'Failed to refresh repository status',
+          {
+            actions: ['Retry', 'Disable Auto-refresh']
+          }
+        ).then(async () => {
+          const action = await vscode.window.showErrorMessage(
+            'Failed to refresh repository status',
+            'Retry',
+            'Disable Auto-refresh'
+          );
+          
+          if (action === 'Retry') {
+            void this.refresh();
+          } else if (action === 'Disable Auto-refresh') {
+            this.autoRefreshEnabled = false;
+          }
+        });
+      }
+      
+      throw err;
     } finally {
       this.refreshing = false;
     }
@@ -131,50 +219,63 @@ export class JjScmProvider implements vscode.Disposable {
 
   async commit(message: string): Promise<void> {
     try {
-      await vscode.window.withProgress(
-        { 
-          location: vscode.ProgressLocation.SourceControl, 
-          title: 'Committing changes...',
-          cancellable: false
-        },
+      await this.notificationService.withProgress(
+        'Committing changes...',
         async () => {
           await this.repo.commit(message);
         }
       );
       
-      vscode.window.showInformationMessage('Changes committed successfully');
+      await this.notificationService.notify(
+        NotificationLevel.Info,
+        'Changes committed successfully'
+      );
     } catch (err) {
-      if (err instanceof JjExecutionError) {
-        vscode.window.showErrorMessage(`Failed to commit: ${err.message}`);
-        
-        // Log detailed error for debugging
-        console.error('Commit failed:', err);
-        if (err.stderr) {
-          console.error('stderr:', err.stderr);
-        }
-      } else if (err instanceof Error) {
-        vscode.window.showErrorMessage(`Failed to commit: ${err.message}`);
-      } else {
-        vscode.window.showErrorMessage('Failed to commit changes');
-      }
+      await this.notificationService.handleJjError(
+        err,
+        'Failed to commit',
+        { modal: true }
+      );
       throw err; // Re-throw to let caller know commit failed
     } finally {
       // Always refresh after commit attempt
       await this.refresh().catch(err => {
-        console.error('Post-commit refresh failed:', err);
+        this.notificationService.log(
+          NotificationLevel.Warning,
+          'Post-commit refresh failed',
+          err instanceof Error ? err.message : String(err)
+        );
       });
     }
   }
 
   /**
- * Get the previous version of a file content
- * TODO: Implement with the correct jj command when provided
- * 
- * @param filePath Path to the file relative to repository root
- * @returns The content of the file in the previous revision
- */
-  async getPreviousFileContent(filePath: string): Promise<string> {
-    return await execJj(['cat', '-r', '@-', filePath], { cwd: this.repo.rootPath });
+   * Provide quick diff content (for gutter indicators)
+   */
+  async provideOriginalResource?(
+    uri: vscode.Uri,
+    token: vscode.CancellationToken
+  ): Promise<vscode.Uri | null> {
+    try {
+      // Check if file exists in working tree changes
+      const isTracked = this.workingTree.resourceStates.some(
+        state => state.resourceUri.toString() === uri.toString()
+      );
+      
+      if (!isTracked) {
+        return null;
+      }
+      
+      // Return a URI that will be handled by our content provider
+      return uri.with({ scheme: 'jj-original', query: 'rev=@-' });
+    } catch (err) {
+      this.notificationService.log(
+        NotificationLevel.Warning,
+        `Failed to provide original resource for ${uri.fsPath}`,
+        err instanceof Error ? err.message : String(err)
+      );
+      return null;
+    }
   }
 
   dispose(): void {

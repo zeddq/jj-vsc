@@ -58,7 +58,7 @@ export async function execJj(args: string[], { cwd }: { cwd: string }): Promise<
         
         // Some jj commands write warnings to stderr even on success
         // Log them but don't fail
-        if (stderr.trim() !== '') {
+        if (stderr?.trim() !== '') {
             console.warn(`jj command warning: ${stderr.trim()}`);
         }
         

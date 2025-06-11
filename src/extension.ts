@@ -4,9 +4,12 @@ import * as vscode from 'vscode';
 import { JjRepository, JjExecutionError } from './domain/JjRepository';
 import { JjScmProvider } from './adapters/scmProvider';
 import { createJjCommitView } from './ui/commit_view';
+import { NotificationService, NotificationLevel } from './services/NotificationService';
 import * as fs from 'fs';
 import * as path from 'path';
 import { SettingsManager } from './services/SettingsManager';
+
+let notificationService: NotificationService;
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -24,29 +27,40 @@ export async function activate(context: vscode.ExtensionContext) {
 		return;
 	}
 
+	// Initialize services
+	notificationService = new NotificationService();
 	const settingsManager = new SettingsManager();
 	const jjRepo = new JjRepository(rootPath);
 
 	// Verify jj is installed and accessible
 	try {
-		await jjRepo.verify();
+		await notificationService.withProgress(
+			'Initializing JuJutsu extension...',
+			async () => await jjRepo.verify()
+		);
 	} catch (err) {
 		await vscode.commands.executeCommand('setContext', 'jj-vsc.isJjRepository', false);
 		
-		if (err instanceof JjExecutionError) {
-			if (err.message.includes('not installed')) {
-				const choice = await vscode.window.showErrorMessage(
-					'JuJutsu (jj) is not installed or not found in PATH. Please install jj to use this extension.',
-					'Learn More'
-				);
-				if (choice === 'Learn More') {
-					vscode.env.openExternal(vscode.Uri.parse('https://github.com/martinvonz/jj'));
-				}
-			} else {
-				vscode.window.showErrorMessage(`JuJutsu Error: ${err.message}`);
+		await notificationService.handleJjError(
+			err,
+			'Failed to initialize JuJutsu extension',
+			{
+				modal: true,
+				actions: err instanceof JjExecutionError && err.message.includes('not installed') 
+					? ['Install JuJutsu'] 
+					: []
 			}
-		} else {
-			vscode.window.showErrorMessage('Failed to initialize JuJutsu extension');
+		);
+		
+		if (err instanceof JjExecutionError && err.message.includes('not installed')) {
+			const choice = await vscode.window.showErrorMessage(
+				'JuJutsu (jj) is not installed or not found in PATH.',
+				'Install JuJutsu',
+				'Dismiss'
+			);
+			if (choice === 'Install JuJutsu') {
+				vscode.env.openExternal(vscode.Uri.parse('https://github.com/martinvonz/jj#installation'));
+			}
 		}
 		return;
 	}
@@ -54,61 +68,107 @@ export async function activate(context: vscode.ExtensionContext) {
 	// Repository is valid
 	await vscode.commands.executeCommand('setContext', 'jj-vsc.isJjRepository', true);
 
-	const scmProvider = new JjScmProvider(jjRepo);
-	const commitView = createJjCommitView(jjRepo);
+	// Initialize providers
+	const scmProvider = new JjScmProvider(jjRepo, notificationService);
+	const commitView = createJjCommitView(jjRepo, notificationService);
 
-	context.subscriptions.push(settingsManager, scmProvider, commitView);
+	// Register content provider for original file versions
+	const originalContentProvider = new JjOriginalContentProvider(jjRepo, notificationService);
+	const originalProviderDisposable = vscode.workspace.registerTextDocumentContentProvider(
+		'jj-original',
+		originalContentProvider
+	);
 
-	// Use the console to output diagnostic information (console.log) and errors (console.error)
-	// This line of code will only be executed once when your extension is activated
+	context.subscriptions.push(
+		notificationService,
+		settingsManager,
+		scmProvider,
+		commitView,
+		originalProviderDisposable
+	);
+
+	// Log successful initialization
+	notificationService.log(NotificationLevel.Info, 'JuJutsu VCS extension activated successfully');
 	console.log('JuJutsu VCS extension active');
 
 	// Register refresh command with error handling
 	const refreshCommand = vscode.commands.registerCommand('jj-vsc.refresh', async () => {
 		try {
-			await scmProvider.refresh();
+			await notificationService.withProgress(
+				'Refreshing repository...',
+				async () => await scmProvider.refresh()
+			);
 		} catch (err) {
-			handleJjError(err, 'Failed to refresh repository status');
+			// Error already handled by scmProvider
 		}
 	});
 
 	// Register show diff command with error handling
 	const showDiffCommand = vscode.commands.registerCommand('jj-vsc.show_diff', async () => {
 		try {
-			const diff = await jjRepo.diff();
+			const diff = await notificationService.withProgress(
+				'Loading diff...',
+				async () => await jjRepo.diff()
+			);
+			
 			if (!diff) {
-				vscode.window.showInformationMessage('No changes in working copy');
+				await notificationService.notify(
+					NotificationLevel.Info,
+					'No changes in working copy'
+				);
 				return;
 			}
-			const diffDoc = await vscode.workspace.openTextDocument({ content: diff, language: 'diff' });
+			
+			const diffDoc = await vscode.workspace.openTextDocument({ 
+				content: diff, 
+				language: 'diff' 
+			});
 			await vscode.window.showTextDocument(diffDoc);
 		} catch (err) {
-			handleJjError(err, 'Failed to show diff');
+			await notificationService.handleJjError(err, 'Failed to show diff');
 		}
 	});
 
 	// Register show history command with error handling
 	const showHistoryCommand = vscode.commands.registerCommand('jj-vsc.show_history', async () => {
 		try {
-			const history = await jjRepo.log();
+			const history = await notificationService.withProgress(
+				'Loading commit history...',
+				async () => await jjRepo.log()
+			);
+			
 			if (history.length === 0) {
-				vscode.window.showInformationMessage('No commit history found');
+				await notificationService.notify(
+					NotificationLevel.Info,
+					'No commit history found'
+				);
 				return;
 			}
+			
 			const historyContent = history.join('\n\n');
-			const historyDoc = await vscode.workspace.openTextDocument({ content: historyContent, language: 'markdown' });
+			const historyDoc = await vscode.workspace.openTextDocument({ 
+				content: historyContent, 
+				language: 'markdown' 
+			});
 			await vscode.window.showTextDocument(historyDoc);
 		} catch (err) {
-			handleJjError(err, 'Failed to show history');
+			await notificationService.handleJjError(err, 'Failed to show history');
 		}
 	});
 
 	// Register merge branch command with error handling
 	const mergeBranchCommand = vscode.commands.registerCommand('jj-vsc.merge_branch', async () => {
 		try {
-			const branches = await jjRepo.listBranches();
+			const branches = await notificationService.withProgress(
+				'Loading branches...',
+				async () => await jjRepo.listBranches()
+			);
+			
 			if (branches.length === 0) {
-				vscode.window.showInformationMessage('No branches found');
+				await notificationService.notify(
+					NotificationLevel.Info,
+					'No branches found'
+				);
 				return;
 			}
 			
@@ -118,30 +178,26 @@ export async function activate(context: vscode.ExtensionContext) {
 			});
 			
 			if (branch) {
-				await vscode.window.withProgress(
-					{ 
-						location: vscode.ProgressLocation.Notification, 
-						title: `Merging branch ${branch}...`,
-						cancellable: false
-					},
+				await notificationService.withProgress(
+					`Merging branch ${branch}...`,
 					async () => {
 						await jjRepo.mergeBranch(branch);
 						await scmProvider.refresh();
 					}
 				);
-				vscode.window.showInformationMessage(`Successfully merged branch ${branch}`);
+				
+				await notificationService.notify(
+					NotificationLevel.Info,
+					`Successfully merged branch ${branch}`
+				);
 			}
 		} catch (err) {
-			handleJjError(err, 'Failed to merge branch');
+			await notificationService.handleJjError(err, 'Failed to merge branch');
 		}
 	});
 
-	// The command has been defined in the package.json file
-	// Now provide the implementation of the command with registerCommand
-	// The commandId parameter must match the command field in package.json
+	// The hello world command (can be removed in production)
 	const disposable = vscode.commands.registerCommand('jj-vsc.helloWorld', () => {
-		// The code you place here will be executed every time your command is executed
-		// Display a message box to the user
 		vscode.window.showInformationMessage('Hello World from jj-vsc!');
 	});
 
@@ -155,46 +211,35 @@ export async function activate(context: vscode.ExtensionContext) {
 }
 
 /**
- * Handle JJ execution errors with appropriate error messages
+ * Content provider for original file versions (used by SCM quick diff)
  */
-function handleJjError(err: unknown, defaultMessage: string): void {
-	if (err instanceof JjExecutionError) {
-		// Show user-friendly error messages
-		const actions: string[] = [];
-		
-		// Add relevant actions based on error type
-		if (err.message.includes('Concurrent modification')) {
-			actions.push('Refresh');
-		}
-		
-		vscode.window.showErrorMessage(
-			`JuJutsu: ${err.message}`,
-			...actions
-		).then(action => {
-			if (action === 'Refresh') {
-				vscode.commands.executeCommand('jj-vsc.refresh');
-			}
-		});
+class JjOriginalContentProvider implements vscode.TextDocumentContentProvider {
+	constructor(
+		private readonly repo: JjRepository,
+		private readonly notificationService: NotificationService
+	) {}
 
-		// Log detailed error information to console for debugging
-		console.error(`JJ Command Failed: ${err.command} ${err.args.join(' ')}`);
-		if (err.stderr) {
-			console.error(`stderr: ${err.stderr}`);
+	async provideTextDocumentContent(uri: vscode.Uri): Promise<string> {
+		try {
+			// Extract the actual file path from the URI
+			const filePath = uri.path;
+			const content = await this.repo.getPreviousFileContent(filePath);
+			return content;
+		} catch (err) {
+			this.notificationService.log(
+				NotificationLevel.Error,
+				`Failed to provide content for ${uri.toString()}`,
+				err instanceof Error ? err.message : String(err)
+			);
+			// Return empty string on error to avoid breaking the diff view
+			return '';
 		}
-		if (err.exitCode !== undefined) {
-			console.error(`Exit code: ${err.exitCode}`);
-		}
-		if (err.originalError) {
-			console.error('Original error:', err.originalError);
-		}
-	} else if (err instanceof Error) {
-		vscode.window.showErrorMessage(`${defaultMessage}: ${err.message}`);
-		console.error(defaultMessage, err);
-	} else {
-		vscode.window.showErrorMessage(defaultMessage);
-		console.error(defaultMessage, err);
 	}
 }
 
 // This method is called when your extension is deactivated
-export function deactivate() {}
+export function deactivate() {
+	if (notificationService) {
+		notificationService.log(NotificationLevel.Info, 'JuJutsu VCS extension deactivated');
+	}
+}

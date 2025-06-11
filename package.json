@@ -1,13 +1,13 @@
 {
   "name": "jj-vsc",
-  "displayName": "jj-vsc",
-  "description": "VSCode integration for JuJutsu VCS",
-  "version": "0.0.1",
+  "displayName": "JuJutsu VCS",
+  "description": "VSCode integration for JuJutsu VCS with enhanced error handling and file operations",
+  "version": "0.1.0",
   "engines": {
     "vscode": "^1.96.2"
   },
   "categories": [
-    "Other"
+    "SCM Providers"
   ],
   "activationEvents": [
     "workspaceContains:**/.jj"
@@ -31,24 +31,24 @@
         "command": "jj-vsc.show_diff",
         "title": "JuJutsu: Show Working Copy Diff",
         "icon": {
-          "light": "resources/icons/light/discord.svg",
-          "dark": "resources/icons/dark/discord.svg"
+          "light": "resources/icons/light/diff.svg",
+          "dark": "resources/icons/dark/diff.svg"
         }
       },
       {
         "command": "jj-vsc.show_history",
         "title": "JuJutsu: Show History",
         "icon": {
-          "light": "resources/icons/light/discord.svg",
-          "dark": "resources/icons/dark/discord.svg"
+          "light": "resources/icons/light/history.svg",
+          "dark": "resources/icons/dark/history.svg"
         }
       },
       {
         "command": "jj-vsc.merge_branch",
         "title": "JuJutsu: Merge Branch",
         "icon": {
-          "light": "resources/icons/light/discord.svg",
-          "dark": "resources/icons/dark/discord.svg"
+          "light": "resources/icons/light/git-merge.svg",
+          "dark": "resources/icons/dark/git-merge.svg"
         }
       },
       {
@@ -58,6 +58,34 @@
           "light": "resources/icons/light/refresh.svg",
           "dark": "resources/icons/dark/refresh.svg"
         }
+      },
+      {
+        "command": "jj-vsc.revertFile",
+        "title": "JuJutsu: Revert File",
+        "icon": {
+          "light": "resources/icons/light/discard.svg",
+          "dark": "resources/icons/dark/discard.svg"
+        }
+      },
+      {
+        "command": "jj-vsc.viewFileHistory",
+        "title": "JuJutsu: View File History",
+        "icon": {
+          "light": "resources/icons/light/history.svg",
+          "dark": "resources/icons/dark/history.svg"
+        }
+      },
+      {
+        "command": "jj-vsc.diffFile",
+        "title": "JuJutsu: Open File Diff"
+      },
+      {
+        "command": "jj-vsc.toggleAutoRefresh",
+        "title": "JuJutsu: Toggle Auto-refresh"
+      },
+      {
+        "command": "jj-vsc.showOutput",
+        "title": "JuJutsu: Show Output"
       }
     ],
     "configuration": {
@@ -77,6 +105,11 @@
           "type": "boolean",
           "default": true,
           "description": "Show status bar item."
+        },
+        "jj-vsc.autoRefreshEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically refresh repository status when files change."
         }
       }
     },
@@ -97,6 +130,49 @@
           "when": "scmProvider == jj",
           "group": "navigation@3"
         }
+      ],
+      "view/title": [
+        {
+          "command": "jj-vsc.refresh",
+          "when": "view == jj-commit-log",
+          "group": "navigation@1"
+        },
+        {
+          "command": "jj-vsc.show_diff",
+          "when": "view == jj-commit-log",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "jj-vsc.diffFile",
+          "when": "view == jj-commit-log && viewItem =~ /^jj-file-/",
+          "group": "inline@1"
+        },
+        {
+          "command": "jj-vsc.revertFile",
+          "when": "view == jj-commit-log && viewItem =~ /^jj-file-(modified|added|deleted)$/",
+          "group": "1_modification@1"
+        },
+        {
+          "command": "jj-vsc.viewFileHistory",
+          "when": "view == jj-commit-log && viewItem =~ /^jj-file-/",
+          "group": "2_history@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "jj-vsc.revertFile",
+          "when": "false"
+        },
+        {
+          "command": "jj-vsc.viewFileHistory",
+          "when": "false"
+        },
+        {
+          "command": "jj-vsc.diffFile",
+          "when": "false"
+        }
       ]
     },
     "views": {
@@ -104,10 +180,31 @@
         {
           "id": "jj-commit-log",
           "name": "Working Copy Changes",
-          "when": "jj-vsc.isJjRepository"
+          "when": "jj-vsc.isJjRepository",
+          "contextualTitle": "JuJutsu"
         }
       ]
-    }
+    },
+    "colors": [
+      {
+        "id": "jjVsc.error",
+        "description": "Color for JuJutsu errors",
+        "defaults": {
+          "dark": "#f48771",
+          "light": "#cd3131",
+          "highContrast": "#f48771"
+        }
+      },
+      {
+        "id": "jjVsc.warning",
+        "description": "Color for JuJutsu warnings",
+        "defaults": {
+          "dark": "#ff9800",
+          "light": "#ff9800",
+          "highContrast": "#ff9800"
+        }
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run package",

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { JjRepository, FileStatus } from '../domain/JjRepository';
+import { NotificationService, NotificationLevel } from '../services/NotificationService';
 import * as path from 'path';
 
 /**
@@ -31,7 +32,7 @@ class FileTreeItem extends vscode.TreeItem {
         };
         
         // Add context value for conditional commands
-        this.contextValue = `file-${fileStatus.status}`;
+        this.contextValue = `jj-file-${fileStatus.status}`;
     }
     
     private getIconForStatus(status: FileStatus['status']): vscode.ThemeIcon {
@@ -60,7 +61,8 @@ class FileGroupTreeItem extends vscode.TreeItem {
         public readonly workspaceRoot: string
     ) {
         super(label, vscode.TreeItemCollapsibleState.Expanded);
-        this.contextValue = 'fileGroup';
+        this.contextValue = 'jj-fileGroup';
+        this.iconPath = new vscode.ThemeIcon('folder');
     }
 }
 
@@ -75,11 +77,15 @@ class JjTreeDataProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
         moved: FileStatus[];
     }>;
 
-    constructor(private readonly repo: JjRepository) { }
+    constructor(
+        private readonly repo: JjRepository,
+        private readonly notificationService: NotificationService
+    ) { }
 
     refresh(): void {
         this.cachedStatus = undefined;
         this._onDidChangeTreeData.fire();
+        this.notificationService.log(NotificationLevel.Info, 'Refreshing file tree');
     }
 
     getTreeItem(element: vscode.TreeItem): vscode.TreeItem {
@@ -145,9 +151,17 @@ class JjTreeDataProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
             
             return groups;
         } catch (error) {
-            console.error('Failed to get file groups:', error);
+            await this.notificationService.handleJjError(
+                error,
+                'Failed to load file changes'
+            );
+            
             const errorItem = new vscode.TreeItem('Failed to load changes');
             errorItem.iconPath = new vscode.ThemeIcon('error');
+            errorItem.command = {
+                command: 'jj-vsc.refresh',
+                title: 'Retry'
+            };
             return [errorItem];
         }
     }
@@ -155,7 +169,11 @@ class JjTreeDataProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
     private async getStatus() {
         if (!this.cachedStatus) {
             this.cachedStatus = this.repo.status().catch(err => {
-                console.error('Failed to get repository status:', err);
+                this.notificationService.log(
+                    NotificationLevel.Error,
+                    'Failed to get repository status',
+                    err instanceof Error ? err.message : String(err)
+                );
                 // Return empty status on error
                 return {
                     modified: [],
@@ -169,14 +187,16 @@ class JjTreeDataProvider implements vscode.TreeDataProvider<vscode.TreeItem> {
     }
 }
 
-export function createJjCommitView(repo: JjRepository) {
-    const treeDataProvider = new JjTreeDataProvider(repo);
+export function createJjCommitView(repo: JjRepository, notificationService: NotificationService) {
+    const treeDataProvider = new JjTreeDataProvider(repo, notificationService);
     const view = vscode.window.createTreeView('jj-commit-log', { 
         treeDataProvider,
         showCollapseAll: true
     });
 
+    // Register file-specific commands
     const commands = [
+        // Diff file command
         vscode.commands.registerCommand('jj-vsc.diffFile', async (item: FileTreeItem) => {
             if (!(item instanceof FileTreeItem)) {
                 return;
@@ -188,94 +208,220 @@ export function createJjCommitView(repo: JjRepository) {
             try {
                 if (item.fileStatus.status === 'deleted') {
                     // For deleted files, show the previous version only
-                    const previousContent = await getPreviousFileContent(repo, item.fileStatus.path);
-                    const previousUri = vscode.Uri.parse(`jj-previous:${fileUri?.path}`);
-                    
-                    // Register a content provider for the previous version
-                    const provider = new JjPreviousContentProvider();
-                    provider.setContent(previousUri.path, previousContent);
-                    const disposable = vscode.workspace.registerTextDocumentContentProvider('jj-previous', provider);
-                    
-                    await vscode.commands.executeCommand(
-                        'vscode.open',
-                        previousUri,
-                        { preview: true, viewColumn: vscode.ViewColumn.Active },
-                        `${fileName} (deleted)`
+                    await notificationService.withProgress(
+                        `Loading previous version of ${fileName}...`,
+                        async () => {
+                            const previousContent = await repo.getPreviousFileContent(item.fileStatus.path);
+                            const previousUri = vscode.Uri.parse(`jj-previous:${fileUri?.path}`);
+                            
+                            // Register a content provider for the previous version
+                            const provider = new JjContentProvider();
+                            provider.setContent(previousUri.path, previousContent);
+                            const disposable = vscode.workspace.registerTextDocumentContentProvider('jj-previous', provider);
+                            
+                            await vscode.commands.executeCommand(
+                                'vscode.open',
+                                previousUri,
+                                { preview: true, viewColumn: vscode.ViewColumn.Active },
+                                `${fileName} (deleted)`
+                            );
+                            
+                            // Clean up after a delay
+                            setTimeout(() => disposable.dispose(), 60000);
+                        }
                     );
-                    
-                    // Clean up after a delay
-                    setTimeout(() => disposable.dispose(), 60000);
                 } else if (item.fileStatus.status === 'added') {
                     // For added files, just open the file
                     await vscode.commands.executeCommand('vscode.open', fileUri);
                 } else {
                     // For modified/moved files, show diff
-                    const previousContent = await getPreviousFileContent(repo, item.fileStatus.path);
-                    const previousUri = vscode.Uri.parse(`jj-previous:${fileUri?.path}`);
-                    
-                    // Register a content provider for the previous version
-                    const provider = new JjPreviousContentProvider();
-                    provider.setContent(previousUri.path, previousContent);
-                    const disposable = vscode.workspace.registerTextDocumentContentProvider('jj-previous', provider);
-                    
-                    const title = `${fileName} (Working Copy ↔ Previous)`;
-                    await vscode.commands.executeCommand(
-                        'vscode.diff',
-                        previousUri,
-                        fileUri,
-                        title,
-                        { preview: true, viewColumn: vscode.ViewColumn.Active }
+                    await notificationService.withProgress(
+                        `Loading diff for ${fileName}...`,
+                        async () => {
+                            const previousContent = await repo.getPreviousFileContent(item.fileStatus.path);
+                            const previousUri = vscode.Uri.parse(`jj-previous:${fileUri?.path}`);
+                            
+                            // Register a content provider for the previous version
+                            const provider = new JjContentProvider();
+                            provider.setContent(previousUri.path, previousContent);
+                            const disposable = vscode.workspace.registerTextDocumentContentProvider('jj-previous', provider);
+                            
+                            const title = `${fileName} (Working Copy ↔ Previous)`;
+                            await vscode.commands.executeCommand(
+                                'vscode.diff',
+                                previousUri,
+                                fileUri,
+                                title,
+                                { preview: true, viewColumn: vscode.ViewColumn.Active }
+                            );
+                            
+                            // Clean up after a delay
+                            setTimeout(() => disposable.dispose(), 60000);
+                        }
                     );
-                    
-                    // Clean up after a delay
-                    setTimeout(() => disposable.dispose(), 60000);
                 }
             } catch (error) {
-                vscode.window.showErrorMessage(`Failed to show diff for ${fileName}: ${error}`);
+                await notificationService.handleJjError(
+                    error,
+                    `Failed to show diff for ${fileName}`
+                );
             }
         }),
         
+        // Revert file command
+        vscode.commands.registerCommand('jj-vsc.revertFile', async (item: FileTreeItem) => {
+            if (!(item instanceof FileTreeItem)) {
+                return;
+            }
+            
+            const fileName = path.basename(item.fileStatus.path);
+            const action = await vscode.window.showWarningMessage(
+                `Are you sure you want to revert "${fileName}"? This will discard all changes.`,
+                { modal: true },
+                'Revert',
+                'Cancel'
+            );
+            
+            if (action === 'Revert') {
+                try {
+                    await notificationService.withProgress(
+                        `Reverting ${fileName}...`,
+                        async () => {
+                            await repo.revertFile(item.fileStatus.path);
+                            treeDataProvider.refresh();
+                        }
+                    );
+                    
+                    await notificationService.notify(
+                        NotificationLevel.Info,
+                        `Successfully reverted ${fileName}`
+                    );
+                } catch (error) {
+                    await notificationService.handleJjError(
+                        error,
+                        `Failed to revert ${fileName}`
+                    );
+                }
+            }
+        }),
+        
+        // View file history command
+        vscode.commands.registerCommand('jj-vsc.viewFileHistory', async (item: FileTreeItem) => {
+            if (!(item instanceof FileTreeItem)) {
+                return;
+            }
+            
+            const fileName = path.basename(item.fileStatus.path);
+            
+            try {
+                const history = await notificationService.withProgress(
+                    `Loading history for ${fileName}...`,
+                    async () => {
+                        return await repo.getFileHistory(item.fileStatus.path, 20);
+                    }
+                );
+                
+                if (history.length === 0) {
+                    await notificationService.notify(
+                        NotificationLevel.Info,
+                        `No history found for ${fileName}`
+                    );
+                    return;
+                }
+                
+                // Create a markdown document with the history
+                const historyContent = `# File History: ${fileName}\n\n` +
+                    history.map((commit, index) => `## ${index + 1}. ${commit}\n`).join('\n');
+                
+                const doc = await vscode.workspace.openTextDocument({
+                    content: historyContent,
+                    language: 'markdown'
+                });
+                
+                await vscode.window.showTextDocument(doc, {
+                    preview: true,
+                    viewColumn: vscode.ViewColumn.Beside
+                });
+                
+            } catch (error) {
+                await notificationService.handleJjError(
+                    error,
+                    `Failed to load history for ${fileName}`
+                );
+            }
+        }),
+        
+        // Show all changes diff
         vscode.commands.registerCommand('jj-vsc.show_diff', async () => {
-            console.log('show_diff');
-            const diff = await repo.diff();
-            const diffDoc = await vscode.workspace.openTextDocument({ content: diff, language: 'diff' });
-            await vscode.window.showTextDocument(diffDoc);
+            try {
+                const diff = await notificationService.withProgress(
+                    'Loading working copy diff...',
+                    async () => await repo.diff()
+                );
+                
+                if (!diff) {
+                    await notificationService.notify(
+                        NotificationLevel.Info,
+                        'No changes in working copy'
+                    );
+                    return;
+                }
+                
+                const diffDoc = await vscode.workspace.openTextDocument({ 
+                    content: diff, 
+                    language: 'diff' 
+                });
+                await vscode.window.showTextDocument(diffDoc);
+            } catch (error) {
+                await notificationService.handleJjError(
+                    error,
+                    'Failed to show diff'
+                );
+            }
         }),
         
+        // Refresh command
         vscode.commands.registerCommand('jj-vsc.refresh', async () => {
-            console.log('refresh');
-            treeDataProvider.refresh();
-            // Optionally refresh the SCM provider too
-            await vscode.commands.executeCommand('workbench.scm.refresh');
-        }),
-        
-        vscode.commands.registerCommand('jj-vsc.merge_branch', async () => {
-            console.log('merge_branch');
-            const branches = await repo.listBranches();
-            const branch = await vscode.window.showQuickPick(branches, { placeHolder: 'Select a branch to merge' });
-            if (branch) {
-                await repo.mergeBranch(branch);
-                vscode.window.showInformationMessage(`Merged branch ${branch}.`);
-                treeDataProvider.refresh();
+            try {
+                await notificationService.withProgress(
+                    'Refreshing repository status...',
+                    async () => {
+                        treeDataProvider.refresh();
+                        // Also refresh the SCM provider
+                        await vscode.commands.executeCommand('workbench.scm.refresh');
+                    }
+                );
+            } catch (error) {
+                await notificationService.handleJjError(
+                    error,
+                    'Failed to refresh'
+                );
             }
         })
     ];
 
     // Auto-refresh when files change
-    const fileWatcher = vscode.workspace.createFileSystemWatcher('**/*');
-    const refreshDebounced = debounce(() => treeDataProvider.refresh(), 1000);
+    const fileWatcher = vscode.workspace.createFileSystemWatcher('**/*', false, false, false);
+    const refreshDebounced = debounce(() => {
+        treeDataProvider.refresh();
+        notificationService.log(NotificationLevel.Info, 'Auto-refreshing due to file changes');
+    }, 1000);
     
     fileWatcher.onDidChange(refreshDebounced);
     fileWatcher.onDidCreate(refreshDebounced);
     fileWatcher.onDidDelete(refreshDebounced);
 
+    // Add context menu contributions
+    view.title = 'JuJutsu Changes';
+    view.description = 'Working copy changes';
+
     return vscode.Disposable.from(...commands, view, fileWatcher);
 }
 
 /**
- * Content provider for showing previous file versions
+ * Content provider for showing file content from jj
  */
-class JjPreviousContentProvider implements vscode.TextDocumentContentProvider {
+class JjContentProvider implements vscode.TextDocumentContentProvider {
     private contents = new Map<string, string>();
     
     setContent(path: string, content: string): void {
@@ -285,13 +431,6 @@ class JjPreviousContentProvider implements vscode.TextDocumentContentProvider {
     provideTextDocumentContent(uri: vscode.Uri): string {
         return this.contents.get(uri.path) || '';
     }
-}
-
-/**
- * Get the previous version of a file from jj
- */
-async function getPreviousFileContent(repo: JjRepository, filePath: string): Promise<string> {
-    return await repo.getPreviousFileContent(filePath);
 }
 
 /**
