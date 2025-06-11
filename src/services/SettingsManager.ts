@@ -6,12 +6,17 @@ export interface JjVcsSettings {
     showStatusBar: boolean;
 }
 
-export class SettingsManager {
+export class SettingsManager implements vscode.Disposable {
     private _settings!: JjVcsSettings;
+    private readonly _subscription: vscode.Disposable;
 
     constructor() {
         this.load();
-        vscode.workspace.onDidChangeConfiguration(this.load, this);
+        this._subscription = vscode.workspace.onDidChangeConfiguration(this.load, this);
+    }
+
+    dispose() {
+        this._subscription.dispose();
     }
 
     get settings(): JjVcsSettings {
